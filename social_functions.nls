@@ -1,0 +1,35 @@
+to links-from-matrix [matrix]
+  let tot-agents sqrt (length matrix)
+  let agent-lin 0
+  let agent-col 0
+  foreach matrix [
+    if (agent-col = tot-agents) [
+      set agent-lin agent-lin + 1
+      set agent-col 0
+    ]
+    if (agent-col > agent-lin and ? = 1) [
+      ask turtle agent-lin [
+        create-social-link-with turtle agent-col
+      ]
+    ]
+    if (agent-col > agent-lin and ? = -1) [
+      if (social-link agent-lin agent-col != nobody) [
+        ask social-link agent-lin agent-col [
+          die
+        ]
+      ]
+    ]        
+    set agent-col agent-col + 1
+  ]  
+end
+
+to-report matrix-from-links
+  let matrix matrix:make-constant count turtles count turtles 0
+  ask turtles [
+    foreach [who] of social-link-neighbors [
+      matrix:set matrix who ? 1
+    ]
+  ]
+  report matrix
+end
+

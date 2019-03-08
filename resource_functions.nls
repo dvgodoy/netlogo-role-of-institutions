@@ -1,0 +1,27 @@
+to make-patches
+  ask patches [
+    set bmax 1
+    set blevel min (list (bmax * (random-float initial-resource-level * 2 / 100)) bmax)
+    set pcolor green - 2.5 - (blevel - bmax) * 5
+  ]
+end
+
+to-report logistic-regrow [growth-rate level capacity] 
+  report growth-rate * level * (1 - level / capacity)
+end
+
+to regrow-patches
+  ask patches [
+    ifelse (blevel > 0) [
+      ;set blevel min (list (blevel + 0.5) bmax)
+      set blevel blevel + logistic-regrow (resource-growth-rate / 100) blevel bmax
+    ] [
+      let chance random-float 1
+      let regrow-prob 0.05 * ((count neighbors with [blevel > 0] + 1) / (count neighbors + 1))
+      if (regrow-prob > chance) [
+        set blevel mean [blevel] of neighbors 
+      ]
+    ]
+    set pcolor green - 2.5 - (blevel - bmax) * 5
+  ]
+end

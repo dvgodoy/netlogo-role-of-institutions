@@ -1,0 +1,181 @@
+to input-matrix-into-r [name nrow ncol matrix]
+  let line[]
+  let element 0
+  let divisor ","
+  let mat (word name " <- matrix(c(")
+  foreach n-values nrow [?] [
+    set line matrix:get-row matrix ?
+    foreach n-values ncol [?] [
+      set element element + 1
+      if (element = (nrow * ncol)) [
+        set divisor ""
+      ]
+      set mat (word mat item ? line divisor)
+    ]
+  ]
+  set mat (word mat "),nrow=" nrow ",ncol=" ncol ",byrow=TRUE)")
+  r:eval mat
+end
+
+to r-load
+  r:eval "rm(list=ls())"
+  r:eval "source('functions.R')"  
+  r:eval "library(igraph)"
+  r:put "torus.size" torus-size
+  r:put "neigh.radius" neighborhood-radius
+  r:put "neigh.type" neighborhood-type
+  r:put "attrib.max" attrib-max
+  r:put "generations" 10 ^ generations-log10
+  r:put "obs.orig.def" must-obs-orig-defection   
+  r:put "mut.rate" mutation-rate / 100
+end
+
+to r-init-vars   
+  
+  r:put "imit.str" imitation-strength
+  r:put "wrong.imit" wrong-imitation / 100
+  r:put "adj.str" adjust-strength
+  r:put "rewire.prob" rewire-prob / 100
+  r:put "geo.str" geo-strength
+  r:put "geo.basic.prob" geo-basic-prob / 100
+  r:put "tryad.str" tryad-strength
+  r:put "tryad.basic.prob" tryad-basic-prob / 100
+  
+  r:put "inst.b" institutional-boldness
+  r:put "inst.v" institutional-vengefulness
+  ifelse (not endogenous-institution) [
+    r:eval "inst.attr <- NULL"
+  ] [
+    r:eval "inst.attr <- list(boldness = inst.b, vengefulness = inst.v)"
+  ]
+  r:put "inst.w" institutional-weight / 100
+  r:put "inst.r" (institutional-weight - institutional-minimum) / 100
+  r:put "inst.str" institutional-strength
+end
+
+to r-init-attrs
+  (r:putagent "attrs" turtles "boldness" "vengefulness")
+  r:put "endog.b" median [boldness] of turtles
+  r:put "endog.v" median [vengefulness] of turtles
+  r:eval "inst.attr <- list(boldness = endog.b, vengefulness = endog.v)"  
+end 
+
+to r-put-coord
+  (r:putagent "coord" turtles "xcor" "ycor")
+  r:eval "geo.mat <- find.geo.neigh(coord$xcor, coord$ycor, torus.size, TRUE, neigh.radius, neigh.type)"
+end
+
+to r-put-payoff
+  (r:putagent "agents" turtles "payoff")
+end
+
+to r-get-roles
+  let roles r:get "roles"
+  let def item 0 roles
+  let pun item 1 roles
+  ask turtles [
+    set defector item who def
+    set punisher item who pun
+  ]  
+end
+
+to r-get-actions
+  let actions r:get "actions"
+
+  let rpd item 2 actions
+  let rwpd item 3 actions
+  let rpmd item 4 actions
+  let rwpmd item 5 actions
+  
+  ask turtles [
+    set meta-defector item who rwpmd 
+    set meta-punisher item who rpmd
+    set punished-defections item who rpd
+    set punished-meta-defections item who rpmd
+    set was-punished-defecting item who rwpd
+    set was-punished-meta-defecting item who rwpmd
+  ]  
+end
+
+to r-get-attribs
+  let attr-boldness r:get "attrs$boldness"
+  let attr-vengefulness r:get "attrs$vengefulness"
+  ask turtles [
+    set boldness item who attr-boldness
+    set vengefulness item who attr-vengefulness
+  ]
+end
+
+to r-define-roles
+  r:eval "roles <- define.roles(attrs$boldness, attrs$vengefulness, 1/attrib.max, NULL)"
+end
+
+to r-make-obs
+  if (defection-observing = "Geo only") [
+    r:eval "obs.edges <- geo.mat"
+  ]
+  if (defection-observing = "Social only") [
+    r:eval "obs.edges <- soc.mat"
+  ]
+  if (defection-observing = "Geo and Social") [
+    r:eval "obs.edges <- geo.mat | soc.mat"
+  ]
+  r:eval "obs <- make.obs(roles$being.seen, obs.edges)"
+  r:eval "actions <- make.actions(roles$defection, roles$punishment, obs.edges, obs, obs.orig.def)"  
+end
+
+to r-imitation
+  r:eval "geo.dist <- calc.dist(coord$xcor, coord$ycor, torus.size, TRUE, TRUE)"
+  r:eval "new.attrs <- imitation(attrs, geo.mat | soc.mat, geo.dist, agents$payoff, TRUE, inst.attr, inst.w, max(0,(inst.w - inst.r)), FALSE, 1, 1/attrib.max, 1, wrong.imit, imit.str, inst.str, mut.rate)"
+  r:eval "attrs$boldness <- new.attrs[[1]]"
+  r:eval "attrs$vengefulness <- new.attrs[[2]]"
+  ;if (role-model) [
+  ;  ask max-one-of turtles [count social-link-neighbors] [
+  ;    r:put "role.model" who
+  ;    r:eval (word "attrs$boldness[role.model] <- " institutional-boldness)
+  ;    r:eval (word "attrs$vengefulness[role.model] <- " institutional-vengefulness)
+  ;  ]
+  ;]
+end
+
+to r-social
+  r:eval "soc.adj <- matrix(0,pop.size,pop.size)"
+  r:eval "soc.try <- matrix(0,pop.size,pop.size)"
+  r:eval "soc.geo <- matrix(0,pop.size,pop.size)"
+  if (rewire-prob > 0) [
+    r:eval "soc.adj <- social.adjust.sigmoid(soc.mat, obs$obs.edges, actions$def, rewire.prob, attrs$boldness, attrs$vengefulness, 1/attrib.max, adj.str)"
+  ]
+  if (tryad-basic-prob > 0) [
+  r:eval "soc.try <- social.tryad.sigmoid(soc.mat, tryad.basic.prob, attrs$boldness, attrs$vengefulness, 1/attrib.max, tryad.str)"
+  ]
+  if (geo-basic-prob > 0) [
+    r:eval "soc.geo <- social.geo.sigmoid(geo.mat, obs$obs.edges, actions$def, geo.basic.prob, attrs$boldness, attrs$vengefulness, 1/attrib.max, geo.str)"
+  ]
+  r:eval "soc.new <- soc.adj + soc.try + soc.geo"
+  r:eval "soc.mat <- soc.mat + soc.new"
+  ;r:eval "soc.graph <- graph.adjacency(soc.mat)"
+end
+
+to r-make-ba-social [power]
+  r:eval (word "ba.power <- " power)
+  r:eval "soc.mat <- matrix(get.adjacency(ba.game(pop.size,ba.power,directed=FALSE),type='both'),ncol=pop.size)"
+  r:eval "soc.graph <- graph.adjacency(soc.mat)"
+  set average-path-length r:get "average.path.length(soc.graph)"
+  set transitivity r:get "transitivity(soc.graph)"
+end
+
+to-report r-average-path-length
+  report average-path-length
+end
+
+to-report r-clust-coeff
+  report transitivity
+end
+
+to-report r-inst-b
+  report r:get "endog.b"
+end
+
+to-report r-inst-v
+  report r:get "endog.v"
+end

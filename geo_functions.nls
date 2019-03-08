@@ -1,0 +1,103 @@
+to-report moore-offsets [n include-center?]
+  let result [list pxcor pycor] of patches with [abs pxcor <= n and abs pycor <= n]
+  ifelse include-center?
+    [ report result ]
+    [ report remove [0 0] result ]
+end
+
+to-report von-neumann-offsets [n include-center?]
+  let result [list pxcor pycor] of patches with [abs pxcor + abs pycor <= n]
+  ifelse include-center?
+    [ report result ]
+    [ report remove [0 0] result ]
+end
+
+to-report matrix-from-geo [neigh-type radius]
+  let nearby []
+  let matrix matrix:make-constant count turtles count turtles 0
+  ask turtles [
+    ifelse neigh-type = "Von Neumann"
+      [ set nearby von-neumann-offsets radius false ]
+      [ set nearby moore-offsets radius false ]
+    foreach [who] of turtles at-points nearby [
+      matrix:set matrix who ? 1
+    ]
+  ]
+  report matrix  
+end
+
+to-report avg-dist [away-to away-from]
+  ifelse (length away-from = 0)
+    [report 0]
+    [
+      let x2 0
+      let y2 0
+      let dist 0
+      let x1 first away-to
+      let y1 last away-to
+      foreach away-from [
+        set x2 first ?
+        set y2 last ?
+        set dist dist + (x1 - x2) ^ 2 + (y1 - y2) ^ 2
+      ]
+      set dist dist / (length away-from)
+      report dist  
+    ]
+end
+
+to-report inc-dist [away-to away-from min-dist]
+  ifelse (min-dist = 0)
+    [ report away-to ]
+    [
+      let dist 0
+      let result []
+      foreach away-to [
+        set dist avg-dist ? away-from
+        if (dist > min-dist) [ 
+          set result fput ? result
+        ]
+      ]
+      report result
+    ]
+end
+
+to-report prob-walk-away [neigh-type radius away-from]
+  let k 2 * radius ^ 2 + 2 * radius
+  if (neigh-type = "Moore")
+    [ set k  k * 2]
+  let prob (length away-from) / k 
+  report prob
+end
+
+to walk-to [neigh-type radius agent defectors basic-prob]
+  ; usage example
+  ;foreach ([who] of turtles with [color = green]) [
+  ;  walk-to "Moore" 1 (turtle ?) (turtles with [color = red]) 1.0
+  ;]
+
+  let nearby[]
+  let away-from []
+  let away-to []
+  let min-dist 0
+  ;print [who] of agent
+  ask agent [
+    ifelse (neigh-type = "Von Neumann")
+      [ set nearby von-neumann-offsets radius false ]
+      [ set nearby moore-offsets radius false ]
+    set away-from [list pxcor pycor] of turtles with [member? self defectors] at-points nearby
+    set away-to [list pxcor pycor] of patches at-points nearby with [not any? turtles-here]  
+    set min-dist avg-dist (list xcor ycor) away-from
+  ]
+  let destinations inc-dist away-to away-from min-dist
+  let prob prob-walk-away neigh-type radius away-from
+  set prob prob * basic-prob  
+  let chance random-float 1.0
+  if (chance < prob) [
+    let go-to one-of patches at-points destinations with [not any? turtles-here]
+    if (go-to != nobody) [
+      ask agent [      
+        move-to go-to
+      ]    
+    ]
+  ]
+end
